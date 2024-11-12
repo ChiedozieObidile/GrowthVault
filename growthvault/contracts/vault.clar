@@ -1,4 +1,4 @@
-;; GrowthVault: Secure Legacy Vault with Inactivity-Based Asset Transfer
+;; GrowthVault: Secure Legacy Vault with Inactivity-Based Asset Transfer and Periodic Activity Alerts
 
 ;; Constants
 (define-constant contract-owner tx-sender)
@@ -9,6 +9,7 @@
 (define-constant err-inactive (err u104))
 (define-constant err-insufficient-signatures (err u105))
 (define-constant err-asset-limit-reached (err u106))
+(define-constant err-alert-period-too-short (err u107))
 
 ;; Data Maps
 (define-map vaults
@@ -18,7 +19,9 @@
     beneficiaries: (list 5 principal),
     inactivity-period: uint,
     last-activity: uint,
-    required-signatures: uint
+    required-signatures: uint,
+    alert-period: uint,
+    last-alert: uint
   }
 )
 
@@ -49,21 +52,38 @@
                                beneficiaries: (list 5 principal),
                                inactivity-period: uint,
                                last-activity: uint,
-                               required-signatures: uint
+                               required-signatures: uint,
+                               alert-period: uint,
+                               last-alert: uint
                              }))
   (> (- (current-time) (get last-activity vault-data)) (get inactivity-period vault-data))
 )
 
+(define-private (should-send-alert (vault-data {
+                                     assets: (list 100 principal),
+                                     beneficiaries: (list 5 principal),
+                                     inactivity-period: uint,
+                                     last-activity: uint,
+                                     required-signatures: uint,
+                                     alert-period: uint,
+                                     last-alert: uint
+                                   }))
+  (> (- (current-time) (get last-alert vault-data)) (get alert-period vault-data))
+)
+
 ;; Public Functions
-(define-public (initialize-vault (beneficiaries (list 5 principal)) (inactivity-period uint) (required-signatures uint))
+(define-public (initialize-vault (beneficiaries (list 5 principal)) (inactivity-period uint) (required-signatures uint) (alert-period uint))
   (let ((vault-data {
           assets: (list ),
           beneficiaries: beneficiaries,
           inactivity-period: inactivity-period,
           last-activity: (current-time),
-          required-signatures: required-signatures
+          required-signatures: required-signatures,
+          alert-period: alert-period,
+          last-alert: (current-time)
         }))
     (asserts! (is-none (map-get? vaults { owner: tx-sender })) (err err-already-initialized))
+    (asserts! (>= alert-period u86400) (err err-alert-period-too-short)) ;; Minimum alert period of 1 day (86400 seconds)
     (ok (map-set vaults { owner: tx-sender } vault-data))
   )
 )
@@ -86,7 +106,10 @@
   (let ((vault (unwrap! (map-get? vaults { owner: tx-sender }) (err err-not-found))))
     (ok (map-set vaults
       { owner: tx-sender }
-      (merge vault { last-activity: (current-time) })
+      (merge vault { 
+        last-activity: (current-time),
+        last-alert: (current-time)
+      })
     ))
   )
 )
@@ -150,4 +173,10 @@
 
 (define-read-only (get-pending-transfer (vault-owner principal))
   (ok (unwrap! (map-get? pending-transfers { vault-owner: vault-owner }) (err err-not-found)))
+)
+
+(define-read-only (time-until-next-alert (vault-owner principal))
+  (let ((vault (unwrap! (map-get? vaults { owner: vault-owner }) (err err-not-found))))
+    (ok (- (+ (get last-alert vault) (get alert-period vault)) (current-time)))
+  )
 )
