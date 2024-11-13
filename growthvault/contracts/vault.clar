@@ -1,4 +1,4 @@
-;; GrowthVault: Secure Legacy Vault with Inactivity-Based Asset Transfer, Periodic Activity Alerts, and Encrypted Message Vault
+;; GrowthVault: Secure Legacy Vault with Inactivity-Based Asset Transfer, Periodic Activity Alerts, Encrypted Message Vault, and Activity Monitor Reset
 
 ;; Constants
 (define-constant contract-owner tx-sender)
@@ -11,6 +11,7 @@
 (define-constant err-asset-limit-reached (err u106))
 (define-constant err-alert-period-too-short (err u107))
 (define-constant err-message-limit-reached (err u108))
+(define-constant err-reset-too-soon (err u109))
 
 ;; Data Maps
 (define-map vaults
@@ -22,7 +23,8 @@
     last-activity: uint,
     required-signatures: uint,
     alert-period: uint,
-    last-alert: uint
+    last-alert: uint,
+    last-reset: uint
   }
 )
 
@@ -60,7 +62,8 @@
                                last-activity: uint,
                                required-signatures: uint,
                                alert-period: uint,
-                               last-alert: uint
+                               last-alert: uint,
+                               last-reset: uint
                              }))
   (> (- (current-time) (get last-activity vault-data)) (get inactivity-period vault-data))
 )
@@ -72,7 +75,8 @@
                                      last-activity: uint,
                                      required-signatures: uint,
                                      alert-period: uint,
-                                     last-alert: uint
+                                     last-alert: uint,
+                                     last-reset: uint
                                    }))
   (> (- (current-time) (get last-alert vault-data)) (get alert-period vault-data))
 )
@@ -86,7 +90,8 @@
           last-activity: (current-time),
           required-signatures: required-signatures,
           alert-period: alert-period,
-          last-alert: (current-time)
+          last-alert: (current-time),
+          last-reset: (current-time)
         }))
     (asserts! (is-none (map-get? vaults { owner: tx-sender })) (err err-already-initialized))
     (asserts! (>= alert-period u86400) (err err-alert-period-too-short)) ;; Minimum alert period of 1 day (86400 seconds)
@@ -209,5 +214,11 @@
 (define-read-only (time-until-next-alert (vault-owner principal))
   (let ((vault (unwrap! (map-get? vaults { owner: vault-owner }) (err err-not-found))))
     (ok (- (+ (get last-alert vault) (get alert-period vault)) (current-time)))
+  )
+)
+
+(define-read-only (time-until-next-reset (vault-owner principal))
+  (let ((vault (unwrap! (map-get? vaults { owner: vault-owner }) (err err-not-found))))
+    (ok (- (+ (get last-reset vault) u604800) (current-time)))
   )
 )
