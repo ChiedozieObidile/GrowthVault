@@ -1,4 +1,4 @@
-;; GrowthVault: Secure Legacy Vault with Inactivity-Based Asset Transfer and Periodic Activity Alerts
+;; GrowthVault: Secure Legacy Vault with Inactivity-Based Asset Transfer, Periodic Activity Alerts, and Encrypted Message Vault
 
 ;; Constants
 (define-constant contract-owner tx-sender)
@@ -10,6 +10,7 @@
 (define-constant err-insufficient-signatures (err u105))
 (define-constant err-asset-limit-reached (err u106))
 (define-constant err-alert-period-too-short (err u107))
+(define-constant err-message-limit-reached (err u108))
 
 ;; Data Maps
 (define-map vaults
@@ -36,6 +37,11 @@
     initiated-at: uint,
     signatures: (list 5 principal)
   }
+)
+
+(define-map encrypted-messages
+  { vault-owner: principal }
+  { messages: (list 10 (string-utf8 1024)) }
 )
 
 ;; Private Functions
@@ -163,6 +169,31 @@
     (map-delete vaults { owner: vault-owner })
     (map-delete pending-transfers { vault-owner: vault-owner })
     (ok true)
+  )
+)
+
+(define-public (add-encrypted-message (encrypted-message (string-utf8 1024)))
+  (let (
+    (vault (unwrap! (map-get? vaults { owner: tx-sender }) (err err-not-found)))
+    (current-messages (default-to { messages: (list ) } (map-get? encrypted-messages { vault-owner: tx-sender })))
+  )
+    (let ((new-messages (unwrap! (as-max-len? (append (get messages current-messages) encrypted-message) u10) (err err-message-limit-reached))))
+      (ok (map-set encrypted-messages
+        { vault-owner: tx-sender }
+        { messages: new-messages }
+      ))
+    )
+  )
+)
+
+(define-public (retrieve-encrypted-messages (vault-owner principal))
+  (let (
+    (vault (unwrap! (map-get? vaults { owner: vault-owner }) (err err-not-found)))
+    (messages (unwrap! (map-get? encrypted-messages { vault-owner: vault-owner }) (err err-not-found)))
+  )
+    (asserts! (or (is-eq tx-sender vault-owner) (is-some (index-of (get beneficiaries vault) tx-sender))) (err err-unauthorized))
+    (asserts! (or (is-eq tx-sender vault-owner) (is-inactive vault)) (err err-unauthorized))
+    (ok messages)
   )
 )
 
